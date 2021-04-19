@@ -47,6 +47,16 @@ Bind the command `shell-command+` to any key, for example `M-!`.
 
 Bug reports and patches should be sent to my [public inbox].
 
+Using [`setup`][setup] I configure `shell-command+` as so:
+
+~~~elisp
+(setup (:package shell-command+)
+  (:option shell-command+-prompt "$ ")
+  (:with-feature dired
+    (:bind "M-!" shell-command+))
+  (:global "M-!" shell-command+))
+~~~
+
 Copying
 -------
 
@@ -56,4 +66,5 @@ Domain Dedication][cc0] license.
 [leah]: http://leahneukirchen.org/dotfiles/.emacs
 [ELPA]: http://elpa.gnu.org/packages/shell-command+.html
 [public inbox]: https://lists.sr.ht/~zge/public-inbox
+[setup]: http://elpa.gnu.org/packages/setup.html
 [cc0]: https://creativecommons.org/publicdomain/zero/1.0/deed

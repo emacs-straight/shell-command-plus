@@ -3,7 +3,7 @@
 ;; Copyright (C) 2020  Free Software Foundation, Inc.
 
 ;; Author: Philip K. <philipk@posteo.net>
-;; Version: 2.0.0
+;; Version: 2.1.0
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
 ;; URL: http://elpa.gnu.org/packages/shell-command+.html
@@ -75,6 +75,10 @@ handlers if the symbol (eg. `man') is contained in the list."
   :type '(choice (boolean :tag "Always active?")
                  (repeat :tag "Selected commands" symbol)))
 
+(defcustom shell-command+-prompt "Shell command: "
+  "Prompt to use when invoking `shell-command+'."
+  :type 'string)
+
 (defconst shell-command+--command-regexp
   (rx bos
       ;; ignore all preceding whitespace
@@ -88,7 +92,7 @@ handlers if the symbol (eg. `man') is contained in the list."
       ;; allow whitespace after indicator
       (* space)
       ;; actual command (and command name)
-      (group (? (group (+ not-newline))
+      (group (? (group (+? not-newline))
                 (+ space))
              (+ not-newline))
       eos)
@@ -130,7 +134,7 @@ These extentions can all be combined with one-another.
 
 In case a region is active, `shell-command+' will only work with the region
 between BEG and END.  Otherwise the whole buffer is processed."
-  (interactive (list (read-shell-command "Shell command: ")
+  (interactive (list (read-shell-command shell-command+-prompt)
                      (if (use-region-p) (region-beginning) (point-min))
                      (if (use-region-p) (region-end) (point-max))))
   (save-match-data
