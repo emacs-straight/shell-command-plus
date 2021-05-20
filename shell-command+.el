@@ -6,7 +6,7 @@
 ;; Version: 2.1.0
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
-;; URL: http://elpa.gnu.org/packages/shell-command+.html
+;; URL: https://git.sr.ht/~zge/bang
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -50,16 +50,19 @@
 ;; selected region (or buffer, if no region was selected).
 ;;
 ;;
-;;	... make
+;;	man fprintf
 ;;
-;; Run Eshell's make (via `compile') in the parent's parent
-;; directory.
+;; Open a man-page using Emacs default man page viewer.  This feature
+;; is based on `eshell', and can be customized using
+;; `shell-command+-use-eshell'.
 ;;
 ;; See `shell-command+'s docstring for more details on how it's input
 ;; is interpreted..
 
 (eval-when-compile (require 'rx))
+(eval-when-compile (require 'pcase))
 (require 'eshell)
+(require 'em-unix)
 
 ;;; Code:
 
@@ -92,9 +95,11 @@ handlers if the symbol (eg. `man') is contained in the list."
       ;; allow whitespace after indicator
       (* space)
       ;; actual command (and command name)
-      (group (? (group (+? not-newline))
-                (+ space))
-             (+ not-newline))
+      (group (group (+ (not space)))
+             (*? space)
+             (*? not-newline))
+      ;; ignore all trailing whitespace
+      (* space)
       eos)
   "Regular expression to parse `shell-command+' input.")
 
@@ -110,6 +115,29 @@ proper upwards directory pointers.  This means that '....' becomes
     (lambda (sub)
       (mapconcat #'identity (make-list (1- (length sub)) "..") "/"))
     path)))
+
+(defun shell-command+-parse (command)
+  "Return parsed representation of COMMAND."
+  (save-match-data
+    (unless (string-match shell-command+--command-regexp command)
+      (error "Invalid command"))
+    (list (match-string-no-properties 1 command)
+          (cond ((match-string-no-properties 2 command) ;<
+                 'input)
+                ((match-string-no-properties 3 command) ;>
+                 'output)
+                ((match-string-no-properties 4 command) ;|
+                 'pipe))
+          (match-string-no-properties 6 command)
+          (condition-case nil
+              (replace-regexp-in-string
+               (rx (* ?\\ ?\\) (or ?\\ (group "%")))
+               buffer-file-name
+               (match-string-no-properties 5 command)
+               nil nil 1)
+            (error (match-string-no-properties 5 command))))))
+
+(shell-command+-parse "ls %")
 
 ;;;###autoload
 (defun shell-command+ (command beg end)
@@ -137,37 +165,26 @@ between BEG and END.  Otherwise the whole buffer is processed."
   (interactive (list (read-shell-command shell-command+-prompt)
                      (if (use-region-p) (region-beginning) (point-min))
                      (if (use-region-p) (region-end) (point-max))))
-  (save-match-data
-    (unless (string-match shell-command+--command-regexp command)
-      (error "Invalid command"))
-    (let ((path (match-string-no-properties 1 command))
-          (cmd (match-string-no-properties 6 command))
-          (rest (condition-case nil
-                    (replace-regexp-in-string
-                     (rx (* ?\\ ?\\) (or ?\\ (group "%")))
-                     buffer-file-name
-                     (match-string-no-properties 5 command)
-                     nil nil 1)
-                  (error (match-string-no-properties 5 command)))))
-      (let ((default-directory (shell-command+-expand-path (or path "."))))
-        (cond ((match-string-no-properties 2 command) ;<
-               (delete-region beg end)
-               (shell-command rest t shell-command-default-error-buffer)
-               (exchange-point-and-mark))
-              ((match-string-no-properties 3 command) ;>
-               (shell-command-on-region
-                beg end rest nil nil
-                shell-command-default-error-buffer t))
-              ((match-string-no-properties 4 command) ;|
-               (shell-command-on-region
-                beg end rest t t
-                shell-command-default-error-buffer t))
-              ((and (or (eq shell-command+-use-eshell t)
-                        (memq (intern cmd) shell-command+-use-eshell))
-                    (intern-soft (concat "eshell/" cmd)))
-               (eshell-command rest (and current-prefix-arg t)))
-              (t (shell-command rest (and current-prefix-arg t)
-                                shell-command-default-error-buffer)))))))
+  (pcase-let* ((`(,path ,mode ,command ,rest) (shell-command+-parse command))
+               (default-directory (shell-command+-expand-path (or path "."))))
+    (cond ((eq mode 'input)
+           (delete-region beg end)
+           (shell-command rest t shell-command-default-error-buffer)
+           (exchange-point-and-mark))
+          ((eq mode 'output)
+           (shell-command-on-region
+            beg end rest nil nil
+            shell-command-default-error-buffer t))
+          ((eq mode 'pipe)              ;|
+           (shell-command-on-region
+            beg end rest t t
+            shell-command-default-error-buffer t))
+          ((and (or (eq shell-command+-use-eshell t)
+                    (memq (intern command) shell-command+-use-eshell))
+                (intern-soft (concat "eshell/" command)))
+           (eshell-command rest (and current-prefix-arg t)))
+          (t (shell-command rest (and current-prefix-arg t)
+                            shell-command-default-error-buffer)))))
 
 (provide 'shell-command+)
 
