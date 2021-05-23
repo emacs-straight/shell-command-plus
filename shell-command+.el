@@ -3,7 +3,7 @@
 ;; Copyright (C) 2020  Free Software Foundation, Inc.
 
 ;; Author: Philip K. <philipk@posteo.net>
-;; Version: 2.1.0
+;; Version: 2.2.0
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
 ;; URL: https://git.sr.ht/~zge/bang
@@ -52,17 +52,15 @@
 ;;
 ;;	man fprintf
 ;;
-;; Open a man-page using Emacs default man page viewer.  This feature
-;; is based on `eshell', and can be customized using
-;; `shell-command+-use-eshell'.
+;; Open a man-page using Emacs default man page viewer.
+;; `shell-command+' can be extended to use custom Elisp handlers via
+;; as specified in `shell-command+-substitute-alist'.
 ;;
 ;; See `shell-command+'s docstring for more details on how it's input
 ;; is interpreted..
 
 (eval-when-compile (require 'rx))
 (eval-when-compile (require 'pcase))
-(require 'eshell)
-(require 'em-unix)
 
 ;;; Code:
 
@@ -71,16 +69,142 @@
   :group 'external
   :prefix "shell-command+-")
 
-(defcustom shell-command+-use-eshell t
+(defcustom shell-command+-use-eshell nil
   "Check for eshell handlers.
 If t, always invoke eshell handlers.  If a list, only invoke
 handlers if the symbol (eg. `man') is contained in the list."
   :type '(choice (boolean :tag "Always active?")
                  (repeat :tag "Selected commands" symbol)))
 
+(make-obsolete-variable 'shell-command+-use-eshell
+                        'shell-command+-substitute-alist
+                        "2.2.0")
+
 (defcustom shell-command+-prompt "Shell command: "
   "Prompt to use when invoking `shell-command+'."
   :type 'string)
+
+(defcustom shell-command+-flip-redirection nil
+  "Flip the meaning of < and > at the beginning of a command."
+  :type 'boolean)
+
+(defcustom shell-command+-substitute-alist
+  (cond ((eq shell-command+-use-eshell t)
+         (require 'eshell)
+         (require 'em-unix)
+         (let (alist)
+           (mapatoms
+            (lambda (sym)
+              (when (string-match (rx bos "eshell/" (group (+ alnum)) eos)
+                                  (symbol-name sym))
+                (push (cons (match-string 1 (symbol-name sym))
+                            #'eshell-command)
+                      alist))))
+           alist))
+        ((consp shell-command+-use-eshell) ;non-empty list
+         (require 'eshell)
+         (require 'em-unix)
+         (let (alist)
+           (mapatoms
+            (lambda (sym)
+              (when (and (string-match (rx bos "eshell/" (group (+ alnum)) eos)
+                                       (symbol-name sym))
+                         (member (intern (match-string 1 (symbol-name sym)))
+                                 shell-command+-use-eshell))
+                (push (cons (match-string 1 (symbol-name sym))
+                            #'eshell-command)
+                      alist))))
+           alist))
+        (t '(("grep" . shell-command+-cmd-grep)
+             ("fgrep" . shell-command+-cmd-grep)
+             ("agrep" . shell-command+-cmd-grep)
+             ("egrep" . shell-command+-cmd-grep)
+             ("find" . shell-command+-cmd-find)
+             ("locate" . shell-command+-cmd-locate)
+             ("man" . shell-command+-cmd-man)
+             ("info" . shell-command+-cmd-info)
+             ("diff" . shell-command+-cmd-diff)
+             ("make" . compile)
+             ("sudo" . shell-command+-cmd-sudo)
+             ("cd" . shell-command+-cmd-cd))))
+  "Association of command substitutes in Elisp.
+Each entry has the form (COMMAND . FUNC), where FUNC is passed
+the command string"
+  :type 'boolean)
+
+
+
+(defun shell-command+-tokenize (command &optional expand)
+  "Return list of tokens of COMMAND.
+If EXPAND is non-nil, expand wildcards."
+  (let ((pos 0) tokens)
+    (while (string-match
+            (rx bos (* space)
+                (or (: ?\" (group (* (not ?\"))) ?\")
+                    (: (group (+ (not (any ?\" space)))))))
+            (substring command pos))
+      (push (let ((tok (match-string 2 (substring command pos))))
+              (if (and expand tok)
+                  (or (file-expand-wildcards tok) (list tok))
+                (list (or (match-string 2 (substring command pos))
+                          (match-string 1 (substring command pos))))))
+            tokens)
+      (setq pos (+ pos (match-end 0))))
+    (unless (= pos (length command))
+      (error "Tokenization error at %s" (substring command pos)))
+    (apply #'append (nreverse tokens))))
+
+(defun shell-command+-cmd-grep (command)
+  "Convert COMMAND into a `grep' call."
+  (grep (mapconcat #'identity (shell-command+-tokenize command t) " ")))
+
+(defun shell-command+-cmd-find (command)
+  "Convert COMMAND into a `find-dired' call."
+  (pcase-let ((`(,_ ,dir . ,args) (shell-command+-tokenize command)))
+    (find-dired dir (mapconcat #'shell-quote-argument args " "))))
+
+(defun shell-command+-cmd-locate (command)
+  "Convert COMMAND into a `locate' call."
+  (pcase-let ((`(,_ ,search) (shell-command+-tokenize command)))
+    (locate search)))
+
+(defun shell-command+-cmd-man (command)
+  "Convert COMMAND into a `man' call."
+  (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command)))
+    (man (mapconcat #'identity args " "))))
+
+(defun shell-command+-cmd-info (command)
+  "Convert COMMAND into a `info' call."
+  (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command)))
+    (Info-directory)
+    (dolist (menu args)
+      (Info-menu menu))))
+
+(defun shell-command+-cmd-diff (command)
+  "Convert COMMAND into `diff' call."
+  (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command t)))
+    (let (files flags)
+      (dolist (arg args)
+        (if (string-match-p (rx bos "-") arg)
+            (push arg flags)
+          (push arg files)))
+      (unless (= (length files) 2)
+        (user-error "Usage: diff [file1] [file2]"))
+      (pop-to-buffer (diff-no-select (car files)
+                                     (cadr files)
+                                     flags)))))
+
+(defun shell-command+-cmd-sudo (command)
+  "Use TRAMP to execute COMMAND."
+  (let ((default-directory (format "/sudo::%s" default-directory)))
+    (shell-command command)))
+
+(defun shell-command+-cmd-cd (command)
+  "Convert COMMAND into a `cd' call."
+  (pcase-let ((`(,_ ,directory) (shell-command+-tokenize command)))
+    (cd directory)))
+
+
 
 (defconst shell-command+--command-regexp
   (rx bos
@@ -91,7 +215,7 @@ handlers if the symbol (eg. `man') is contained in the list."
                 (* (not space)))
          (+ space))
       ;; check for redirection indicator
-      (? (or (group ?<) (group ?>) (group ?|) ?!))
+      (? (group (or ?< ?> ?| ?!)))
       ;; allow whitespace after indicator
       (* space)
       ;; actual command (and command name)
@@ -122,22 +246,24 @@ proper upwards directory pointers.  This means that '....' becomes
     (unless (string-match shell-command+--command-regexp command)
       (error "Invalid command"))
     (list (match-string-no-properties 1 command)
-          (cond ((match-string-no-properties 2 command) ;<
-                 'input)
-                ((match-string-no-properties 3 command) ;>
-                 'output)
-                ((match-string-no-properties 4 command) ;|
-                 'pipe))
-          (match-string-no-properties 6 command)
+          (cond ((string= (match-string-no-properties 2 command) "<")
+                 (if shell-command+-flip-redirection
+                     'output 'input))
+                ((string= (match-string-no-properties 2 command) ">")
+                 (if shell-command+-flip-redirection
+                     'input 'output))
+                ((string= (match-string-no-properties 2 command) "|")
+                 'pipe)
+                ((string= (match-string-no-properties 2 command) "!")
+                 'literal))
+          (match-string-no-properties 4 command)
           (condition-case nil
               (replace-regexp-in-string
                (rx (* ?\\ ?\\) (or ?\\ (group "%")))
                buffer-file-name
-               (match-string-no-properties 5 command)
+               (match-string-no-properties 3 command)
                nil nil 1)
-            (error (match-string-no-properties 5 command))))))
-
-(shell-command+-parse "ls %")
+            (error (match-string-no-properties 3 command))))))
 
 ;;;###autoload
 (defun shell-command+ (command beg end)
@@ -152,8 +278,11 @@ When COMMAND starts with...
   |  the current selection is filtered through COMMAND
   !  COMMAND is simply executed (same as without any prefix)
 
-If `shell-command+-use-eshell' is non-nil, and the the first
-argument of COMMAND has a defined `eshell'-function, use that.
+If the first word in COMMAND, matches an entry in the alist
+`shell-command+-substitute-alist', the respective function is
+used to execute the command instead of passing it to a shell
+process.  This behaviour can be inhibited by prefixing COMMAND
+with !.
 
 Inside COMMAND, % is replaced with the current file name.  To
 insert a literal % quote it using a backslash.
@@ -175,14 +304,14 @@ between BEG and END.  Otherwise the whole buffer is processed."
            (shell-command-on-region
             beg end rest nil nil
             shell-command-default-error-buffer t))
-          ((eq mode 'pipe)              ;|
+          ((eq mode 'pipe)
            (shell-command-on-region
             beg end rest t t
             shell-command-default-error-buffer t))
-          ((and (or (eq shell-command+-use-eshell t)
-                    (memq (intern command) shell-command+-use-eshell))
-                (intern-soft (concat "eshell/" command)))
-           (eshell-command rest (and current-prefix-arg t)))
+          ((and (not (eq mode 'literal))
+                (assoc command shell-command+-substitute-alist))
+           (funcall (cdr (assoc command shell-command+-substitute-alist))
+                    rest))
           (t (shell-command rest (and current-prefix-arg t)
                             shell-command-default-error-buffer)))))
 
