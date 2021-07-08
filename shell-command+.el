@@ -6,7 +6,7 @@
 ;; Version: 2.2.0
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
-;; URL: https://git.sr.ht/~zge/bang
+;; URL: https://git.sr.ht/~pkal/shell-command-plus
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
