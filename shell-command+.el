@@ -1,6 +1,6 @@
 ;;; shell-command+.el --- An extended shell-command -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020  Free Software Foundation, Inc.
+;; Copyright (C) 2020-2021  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Version: 2.2.1
@@ -59,12 +59,12 @@
 ;; See `shell-command+'s docstring for more details on how it's input
 ;; is interpreted..
 
+;;; Code:
+
 (eval-when-compile (require 'rx))
 (eval-when-compile (require 'pcase))
 (require 'diff)
 (require 'info)
-
-;;; Code:
 
 (defgroup shell-command+ nil
   "An extended `shell-command'."
@@ -74,7 +74,7 @@
 (defcustom shell-command+-use-eshell nil
   "Check for eshell handlers.
 If t, always invoke eshell handlers.  If a list, only invoke
-handlers if the symbol (eg. `man') is contained in the list."
+handlers if the symbol (e.g. `man') is contained in the list."
   :type '(choice (boolean :tag "Always active?")
                  (repeat :tag "Selected commands" symbol)))
 
@@ -125,6 +125,7 @@ handlers if the symbol (eg. `man') is contained in the list."
              ("fgrep" . shell-command+-cmd-grep)
              ("agrep" . shell-command+-cmd-grep)
              ("egrep" . shell-command+-cmd-grep)
+             ("rgrep" . shell-command+-cmd-grep)
              ("find" . shell-command+-cmd-find)
              ("locate" . shell-command+-cmd-locate)
              ("man" . shell-command+-cmd-man)
@@ -135,8 +136,10 @@ handlers if the symbol (eg. `man') is contained in the list."
              ("cd" . shell-command+-cmd-cd))))
   "Association of command substitutes in Elisp.
 Each entry has the form (COMMAND . FUNC), where FUNC is passed
-the command string"
-  :type 'boolean)
+the command string.  To disable all command substitutions, set
+this option to nil."
+  :type '(alist :key-type (string :tag "Command Name")
+                :value-type (function :tag "Substitute")))
 
 
 
@@ -234,21 +237,29 @@ If EXPAND is non-nil, expand wildcards."
 
 (defconst shell-command+--command-regexp
   (rx bos
-      ;; ignore all preceding whitespace
+      ;; Ignore all preceding whitespace
       (* space)
-      ;; check for working directory string
+      ;; Check for working directory string
       (? (group (or (: ?. (not (any "/"))) ?/ ?~)
                 (* (not space)))
          (+ space))
-      ;; check for redirection indicator
+      ;; Check for redirection indicator
       (? (group (or ?< ?> ?| ?!)))
-      ;; allow whitespace after indicator
+      ;; Allow whitespace after indicator
       (* space)
-      ;; actual command (and command name)
-      (group (group (+ (not space)))
-             (*? space)
-             (*? not-newline))
-      ;; ignore all trailing whitespace
+      ;; Actual command
+      (group
+       ;; Skip environmental variables
+       (* (: (+ alnum) "=" (or (: ?\" (* (or (: ?\\ anychar) (not (any ?\\ ?\")))) ?\")
+                               (: ?\'(* (or (: ?\\ anychar) (not (any ?\\ ?\')))) ?\')
+                               (+ (not space))))
+          (+ space))
+       ;; Command name
+       (group (+ (not space)))
+       ;; Parse arguments
+       (*? space)
+       (group (*? not-newline)))
+      ;; Ignore all trailing whitespace
       (* space)
       eos)
   "Regular expression to parse `shell-command+' input.")
@@ -280,7 +291,13 @@ proper upwards directory pointers.  This means that '....' becomes
                      'input 'output))
                 ((string= (match-string-no-properties 2 command) "|")
                  'pipe)
-                ((string= (match-string-no-properties 2 command) "!")
+                ((or (string= (match-string-no-properties 2 command) "!")
+                     ;; Check if the output of the command is being
+                     ;; piped into some other command. In that case,
+                     ;; interpret the command literally.
+                     (let ((args (match-string-no-properties 5 command)))
+                       (save-match-data
+                         (member "|" (shell-command+-tokenize args)))))
                  'literal))
           (match-string-no-properties 4 command)
           (condition-case nil
