@@ -3,7 +3,7 @@
 ;; Copyright (C) 2020-2021  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
-;; Version: 2.2.1
+;; Version: 2.3.1
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
@@ -22,7 +22,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;;
+
 ;; `shell-command+' is a `shell-command' substitute, that extends the
 ;; regular Emacs command with several features.  After installed,
 ;; configure the package as follows:
@@ -58,6 +58,19 @@
 ;;
 ;; See `shell-command+'s docstring for more details on how it's input
 ;; is interpreted..
+
+;;; News:
+
+;;;; Version 2.3.0 (15Oct21)
+
+;; - Add rgrep to shell-command+-substitute-alist
+;; - Fix shell-command+-substitute-alist customization type
+;; - Skip environmental variables when parsing a command
+;; - Check if command is being piped, in which case command
+;;   substitution is avoided.
+;; - Fix persistent sudo bug, where any command after a sudo
+;;   substitute would try to run as root
+;; - Improve command tokenization performance slightly.
 
 ;;; Code:
 
@@ -144,7 +157,7 @@ this option to nil."
 
 
 (defconst shell-command+-token-regexp
-  (rx bos (* space)
+  (rx (* space)
       (or (: ?\"
              (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\")))))
              ?\")
@@ -159,22 +172,23 @@ this option to nil."
   "Return list of tokens of COMMAND.
 If EXPAND is non-nil, expand wildcards."
   (let ((pos 0) tokens)
-    (while (string-match shell-command+-token-regexp (substring command pos))
-      (push (let ((tok (match-string 2 (substring command pos))))
+    (while (string-match shell-command+-token-regexp command pos)
+      (push (let ((tok (match-string 2 command)))
               (if (and expand tok)
                   (or (file-expand-wildcards tok) (list tok))
                 (list (replace-regexp-in-string
                        (rx (* ?\\ ?\\) (group ?\\ (group anychar)))
                        "\\2"
-                       (or (match-string 2 (substring command pos))
-                           (match-string 1 (substring command pos)))
+                       (or (match-string 2 command)
+                           (match-string 1 command))
                        nil nil 1))))
             tokens)
-      (when (= (match-end 0) 0)
+      (when (= pos (match-end 0))
         (error "Zero-width token parsed"))
-      (setq pos (+ pos (match-end 0))))
+      (setq pos (match-end 0)))
     (unless (= pos (length command))
-      (error "Tokenization error at %s" (substring command pos)))
+      (error "Tokenization error at %S in string %S (parsed until %d, instead of %d)"
+             (substring command pos) command pos (length command)))
     (apply #'append (nreverse tokens))))
 
 (defun shell-command+-cmd-grep (command)
@@ -225,7 +239,7 @@ If EXPAND is non-nil, expand wildcards."
 
 (defun shell-command+-cmd-sudo (command)
   "Use TRAMP to execute COMMAND."
-  (let ((default-directory (format "/sudo::%s" default-directory)))
+  (let ((default-directory (concat "/sudo::" default-directory)))
     (shell-command command)))
 
 (defun shell-command+-cmd-cd (command)
@@ -345,6 +359,11 @@ between BEG and END.  Otherwise the whole buffer is processed."
                      (if (use-region-p) (region-end) (point-max))))
   (pcase-let* ((`(,path ,mode ,command ,rest) (shell-command+-parse command))
                (default-directory (shell-command+-expand-path (or path "."))))
+    ;; Make sure the previous output buffer was killed, to prevent
+    ;; TRAMP paths from persisting between commands.
+    (let ((shell-command-buffer (get-buffer shell-command-buffer-name)))
+      (when shell-command-buffer
+        (kill-buffer shell-command-buffer)))
     (cond ((eq mode 'input)
            (delete-region beg end)
            (shell-command rest t shell-command-default-error-buffer)
