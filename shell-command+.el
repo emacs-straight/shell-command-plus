@@ -3,7 +3,7 @@
 ;; Copyright (C) 2020-2021  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
-;; Version: 2.3.1
+;; Version: 2.3.2
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
@@ -361,7 +361,8 @@ between BEG and END.  Otherwise the whole buffer is processed."
                (default-directory (shell-command+-expand-path (or path "."))))
     ;; Make sure the previous output buffer was killed, to prevent
     ;; TRAMP paths from persisting between commands.
-    (let ((shell-command-buffer (get-buffer shell-command-buffer-name)))
+    (let ((shell-command-buffer (get-buffer (or (bound-and-true-p shell-command-buffer-name)
+                                                "*Shell Command Output*"))))
       (when shell-command-buffer
         (kill-buffer shell-command-buffer)))
     (cond ((eq mode 'input)
