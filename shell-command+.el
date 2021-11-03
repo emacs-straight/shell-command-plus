@@ -152,7 +152,8 @@ Each entry has the form (COMMAND . FUNC), where FUNC is passed
 the command string.  To disable all command substitutions, set
 this option to nil."
   :type '(alist :key-type (string :tag "Command Name")
-                :value-type (function :tag "Substitute")))
+                :value-type (function :tag "Substitute"))
+  :set-after '(shell-command+-use-eshell))
 
 
 
@@ -351,7 +352,7 @@ These extentions can all be combined with one-another.
 In case a region is active, `shell-command+' will only work with the region
 between BEG and END.  Otherwise the whole buffer is processed."
   (interactive (list (read-shell-command
-                      (if shell-command-prompt-show-cwd
+                      (if (bound-and-true-p shell-command-prompt-show-cwd)
                           (format shell-command+-prompt
                                   (abbreviate-file-name default-directory))
                         shell-command+-prompt))
