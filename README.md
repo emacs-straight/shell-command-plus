@@ -22,8 +22,7 @@ Using [`setup`][setup] I configure `shell-command+` as so:
 ~~~elisp
 (setup (:package shell-command+)
   (:option shell-command+-prompt "$ ")
-  (:with-feature dired
-    (:bind "M-!" shell-command+))
+  (:bind-into dired "M-!" shell-command+)
   (:global "M-!" shell-command+))
 ~~~
 
