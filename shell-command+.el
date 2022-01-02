@@ -238,10 +238,13 @@ If EXPAND is non-nil, expand wildcards."
                                      (cadr files)
                                      flags)))))
 
+(defvar shell-command+--command-regexp)
 (defun shell-command+-cmd-sudo (command)
-  "Use TRAMP to execute COMMAND."
+  "Use TRAMP's \"sudo\" method to execute COMMAND."
   (let ((default-directory (concat "/sudo::" default-directory)))
-    (shell-command command)))
+    (unless (string-match shell-command+--command-regexp command)
+      (error "Couldn't parse command"))
+    (shell-command+ (replace-match "" nil nil command 4))))
 
 (defun shell-command+-cmd-cd (command)
   "Convert COMMAND into a `cd' call."
@@ -326,7 +329,7 @@ proper upwards directory pointers.  This means that '....' becomes
             (error (match-string-no-properties 3 command))))))
 
 ;;;###autoload
-(defun shell-command+ (command beg end)
+(defun shell-command+ (command &optional beg end)
   "Intelligently execute string COMMAND in inferior shell.
 
 If COMMAND is prefixed with an absolute or relative path, the
@@ -355,9 +358,9 @@ between BEG and END.  Otherwise the whole buffer is processed."
                       (if (bound-and-true-p shell-command-prompt-show-cwd)
                           (format shell-command+-prompt
                                   (abbreviate-file-name default-directory))
-                        shell-command+-prompt))
-                     (if (use-region-p) (region-beginning) (point-min))
-                     (if (use-region-p) (region-end) (point-max))))
+                        shell-command+-prompt))))
+  (unless beg (setq beg (if (use-region-p) (region-beginning) (point-min))))
+  (unless end (setq end (if (use-region-p) (region-end) (point-max))))
   (pcase-let* ((`(,path ,mode ,command ,rest) (shell-command+-parse command))
                (default-directory (shell-command+-expand-path (or path "."))))
     ;; Make sure the previous output buffer was killed, to prevent
