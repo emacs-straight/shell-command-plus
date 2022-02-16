@@ -3,6 +3,7 @@
 ;; Copyright (C) 2020-2021  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
+;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
 ;; Version: 2.3.2
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.1"))
@@ -78,6 +79,7 @@
 (eval-when-compile (require 'pcase))
 (require 'diff)
 (require 'info)
+(provide 'thingatpt)
 
 (defgroup shell-command+ nil
   "An extended `shell-command'."
@@ -154,6 +156,15 @@ this option to nil."
   :type '(alist :key-type (string :tag "Command Name")
                 :value-type (function :tag "Substitute"))
   :set-after '(shell-command+-use-eshell))
+
+(defcustom shell-command+-default-region nil
+  "Default thing to apply a command onto.
+The default value nil will apply a buffer to the entire buffer.
+A symbol such as `line', `page', `defun', ... as defined by
+`bounds-of-thing-at-point' will restrict the region to whatever
+is specified."
+  :type '(choice (const :tag "Entire buffer" nil)
+                 (symbol :tag "Thing")))
 
 
 
@@ -354,13 +365,20 @@ These extentions can all be combined with one-another.
 
 In case a region is active, `shell-command+' will only work with the region
 between BEG and END.  Otherwise the whole buffer is processed."
-  (interactive (list (read-shell-command
-                      (if (bound-and-true-p shell-command-prompt-show-cwd)
-                          (format shell-command+-prompt
-                                  (abbreviate-file-name default-directory))
-                        shell-command+-prompt))))
-  (unless beg (setq beg (if (use-region-p) (region-beginning) (point-min))))
-  (unless end (setq end (if (use-region-p) (region-end) (point-max))))
+  (interactive (let ((bounds (and shell-command+-default-region
+                                  (bounds-of-thing-at-point
+                                   shell-command+-default-region))))
+                 (list (read-shell-command
+                        (if (bound-and-true-p shell-command-prompt-show-cwd)
+                            (format shell-command+-prompt
+                                    (abbreviate-file-name default-directory))
+                          shell-command+-prompt))
+                       (cond ((use-region-p) (region-beginning))
+                             (bounds (car bounds))
+                             ((point-min)))
+                       (cond ((use-region-p) (region-end))
+                             (bounds (cdr bounds))
+                             ((point-max))))))
   (pcase-let* ((`(,path ,mode ,command ,rest) (shell-command+-parse command))
                (default-directory (shell-command+-expand-path (or path "."))))
     ;; Make sure the previous output buffer was killed, to prevent
