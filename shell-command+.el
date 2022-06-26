@@ -1,6 +1,6 @@
 ;;; shell-command+.el --- An extended shell-command -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2021  Free Software Foundation, Inc.
+;; Copyright (C) 2020-2022  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
@@ -79,7 +79,7 @@
 (eval-when-compile (require 'pcase))
 (require 'diff)
 (require 'info)
-(provide 'thingatpt)
+(require 'thingatpt)
 
 (defgroup shell-command+ nil
   "An extended `shell-command'."
