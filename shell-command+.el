@@ -177,7 +177,8 @@ is specified."
              (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\')))))
              ?\')
           (group (+ (not (any space ?\\ ?\" ?\')))
-                 (* ?\\ anychar (* (not (any space ?\\ ?\" ?\')))))))
+                 (* ?\\ anychar (* (not (any space ?\\ ?\" ?\'))))))
+      (* space))
   "Regular expression for tokenizing shell commands.")
 
 (defun shell-command+-tokenize (command &optional expand)

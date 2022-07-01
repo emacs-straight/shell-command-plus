@@ -1,6 +1,6 @@
 ;;; shell-command+-tests.el --- Tests for shell-command+  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021  Free Software Foundation, Inc.
+;; Copyright (C) 2021, 2022  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 
@@ -187,7 +187,10 @@
                    ("a b\\\\c d" nil ("a" "b\\c" "d"))
                    ("a b\\\\ c d" nil ("a" "b\\" "c" "d"))
                    ("a b\\\\\\ c d" nil ("a" "b\\\\ c" "d"))
-                   ("abcd\\ ef gh" nil ("abcd ef" "gh"))))
+                   ("abcd\\ ef gh" nil ("abcd ef" "gh"))
+                   ("abcd\\ ef  gh" nil ("abcd ef" "gh"))
+                   ("abcd\\ ef  gh " nil ("abcd ef" "gh"))
+                   (" abcd\\ ef  gh  " nil ("abcd ef" "gh"))))
     (should (equal (shell-command+-tokenize args expand)
                    list))))
 
