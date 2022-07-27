@@ -58,7 +58,10 @@
 ;; as specified in `shell-command+-substitute-alist'.
 ;;
 ;; See `shell-command+'s docstring for more details on how it's input
-;; is interpreted..
+;; is interpreted.
+;;
+;; `shell-command+' was originally based on the command `bang' by Leah
+;; Neukirchen (https://leahneukirchen.org/dotfiles/.emacs).
 
 ;;; News:
 
@@ -86,17 +89,6 @@
   :group 'external
   :prefix "shell-command+-")
 
-(defcustom shell-command+-use-eshell nil
-  "Check for eshell handlers.
-If t, always invoke eshell handlers.  If a list, only invoke
-handlers if the symbol (e.g. `man') is contained in the list."
-  :type '(choice (boolean :tag "Always active?")
-                 (repeat :tag "Selected commands" symbol)))
-
-(make-obsolete-variable 'shell-command+-use-eshell
-                        'shell-command+-substitute-alist
-                        "2.2.0")
-
 (defcustom shell-command+-prompt "Shell command: "
   "Prompt to use when invoking `shell-command+'."
   :type 'string)
@@ -110,45 +102,19 @@ handlers if the symbol (e.g. `man') is contained in the list."
   :type 'boolean)
 
 (defcustom shell-command+-substitute-alist
-  (cond ((eq shell-command+-use-eshell t)
-         (require 'eshell)
-         (require 'em-unix)
-         (let (alist)
-           (mapatoms
-            (lambda (sym)
-              (when (string-match (rx bos "eshell/" (group (+ alnum)) eos)
-                                  (symbol-name sym))
-                (push (cons (match-string 1 (symbol-name sym))
-                            #'eshell-command)
-                      alist))))
-           alist))
-        ((consp shell-command+-use-eshell) ;non-empty list
-         (require 'eshell)
-         (require 'em-unix)
-         (let (alist)
-           (mapatoms
-            (lambda (sym)
-              (when (and (string-match (rx bos "eshell/" (group (+ alnum)) eos)
-                                       (symbol-name sym))
-                         (member (intern (match-string 1 (symbol-name sym)))
-                                 shell-command+-use-eshell))
-                (push (cons (match-string 1 (symbol-name sym))
-                            #'eshell-command)
-                      alist))))
-           alist))
-        (t '(("grep" . shell-command+-cmd-grep)
-             ("fgrep" . shell-command+-cmd-grep)
-             ("agrep" . shell-command+-cmd-grep)
-             ("egrep" . shell-command+-cmd-grep)
-             ("rgrep" . shell-command+-cmd-grep)
-             ("find" . shell-command+-cmd-find)
-             ("locate" . shell-command+-cmd-locate)
-             ("man" . shell-command+-cmd-man)
-             ("info" . shell-command+-cmd-info)
-             ("diff" . shell-command+-cmd-diff)
-             ("make" . compile)
-             ("sudo" . shell-command+-cmd-sudo)
-             ("cd" . shell-command+-cmd-cd))))
+  '(("grep" . shell-command+-cmd-grep)
+    ("fgrep" . shell-command+-cmd-grep)
+    ("agrep" . shell-command+-cmd-grep)
+    ("egrep" . shell-command+-cmd-grep)
+    ("rgrep" . shell-command+-cmd-grep)
+    ("find" . shell-command+-cmd-find)
+    ("locate" . shell-command+-cmd-locate)
+    ("man" . shell-command+-cmd-man)
+    ("info" . shell-command+-cmd-info)
+    ("diff" . shell-command+-cmd-diff)
+    ("make" . compile)
+    ("sudo" . shell-command+-cmd-sudo)
+    ("cd" . shell-command+-cmd-cd))
   "Association of command substitutes in Elisp.
 Each entry has the form (COMMAND . FUNC), where FUNC is passed
 the command string.  To disable all command substitutions, set
@@ -308,37 +274,46 @@ proper upwards directory pointers.  This means that '....' becomes
     path)))
 
 (defun shell-command+-parse (command)
-  "Return parsed representation of COMMAND."
+  "Return parsed representation of COMMAND.
+The resulting list has the form (DIRECTORY INDIRECTION EXECUTABLE
+COMMAND), where DIRECTORY is the directory the command should be
+executed in, if non-nil, indirection is one of `input', `output',
+`pipe', `literal' or nil depending on the indirection-prefix,
+executable is the name of the executable, and command is the
+entire command."
   (save-match-data
     (unless (string-match shell-command+--command-regexp command)
       (error "Invalid command"))
-    (list (match-string-no-properties 1 command)
-          (cond ((string= (match-string-no-properties 2 command) "<")
-                 (if shell-command+-flip-redirection
-                     'output 'input))
-                ((string= (match-string-no-properties 2 command) ">")
-                 (if shell-command+-flip-redirection
-                     'input 'output))
-                ((string= (match-string-no-properties 2 command) "|")
-                 'pipe)
-                ((or (string= (match-string-no-properties 2 command) "!")
-                     ;; Check if the output of the command is being
-                     ;; piped into some other command. In that case,
-                     ;; interpret the command literally.
-                     (let ((args (match-string-no-properties 5 command)))
-                       (save-match-data
-                         (member "|" (shell-command+-tokenize args)))))
-                 'literal))
-          (match-string-no-properties 4 command)
-          (condition-case nil
-              (if shell-command+-enable-file-substitution
-                  (replace-regexp-in-string
-                   (rx (* ?\\ ?\\) (or ?\\ (group "%")))
-                   buffer-file-name
-                   (match-string-no-properties 3 command)
-                   nil nil 1)
-                (match-string-no-properties 3 command))
-            (error (match-string-no-properties 3 command))))))
+    (let ((dir (match-string-no-properties 1 command))
+          (ind (cond ((string= (match-string-no-properties 2 command) "<")
+                      (if shell-command+-flip-redirection
+                          'output 'input))
+                     ((string= (match-string-no-properties 2 command) ">")
+                      (if shell-command+-flip-redirection
+                          'input 'output))
+                     ((string= (match-string-no-properties 2 command) "|")
+                      'pipe)
+                     ((or (string= (match-string-no-properties 2 command) "!")
+                          ;; Check if the output of the command is being
+                          ;; piped into some other command. In that case,
+                          ;; interpret the command literally.
+                          (let ((args (match-string-no-properties 5 command)))
+                            (save-match-data
+                              (member "|" (shell-command+-tokenize args)))))
+                      'literal)))
+          (cmd (match-string-no-properties 4 command))
+          (all (condition-case nil
+                   (if shell-command+-enable-file-substitution
+                       (replace-regexp-in-string
+                        (rx (* ?\\ ?\\) (or ?\\ (group "%")))
+                        buffer-file-name
+                        (match-string-no-properties 3 command)
+                        nil nil 1)
+                     (match-string-no-properties 3 command))
+                 (error (match-string-no-properties 3 command)))))
+      (if (or (null dir) (file-directory-p dir))
+          (list dir ind cmd all)
+        (list nil ind dir (format "%s %s" dir all))))))
 
 ;;;###autoload
 (defun shell-command+ (command &optional beg end)
