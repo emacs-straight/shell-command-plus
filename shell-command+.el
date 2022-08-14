@@ -4,9 +4,9 @@
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
-;; Version: 2.3.2
+;; Version: 3.0.0pre
 ;; Keywords: unix, processes, convenience
-;; Package-Requires: ((emacs "24.1"))
+;; Package-Requires: ((emacs "24.1") (compat "28.1.2.0"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -65,6 +65,15 @@
 
 ;;; News:
 
+;;;; Version 3.0.0 (???)
+
+;; - Allow adding or removing features using
+;;   `shell-command+-features'.
+;; - Add `shell-command+-default-region' user option.
+;; - Remove `shell-command+-use-eshell'.
+;; - Deprecate `shell-command+-enable-file-substitution'.
+;; - Minor bug fixes and stability improvements.
+
 ;;;; Version 2.3.0 (15Oct21)
 
 ;; - Add rgrep to shell-command+-substitute-alist
@@ -93,36 +102,6 @@
   "Prompt to use when invoking `shell-command+'."
   :type 'string)
 
-(defcustom shell-command+-flip-redirection nil
-  "Flip the meaning of < and > at the beginning of a command."
-  :type 'boolean)
-
-(defcustom shell-command+-enable-file-substitution t
-  "Enable the substitution of \"%s\" with the current file name."
-  :type 'boolean)
-
-(defcustom shell-command+-substitute-alist
-  '(("grep" . shell-command+-cmd-grep)
-    ("fgrep" . shell-command+-cmd-grep)
-    ("agrep" . shell-command+-cmd-grep)
-    ("egrep" . shell-command+-cmd-grep)
-    ("rgrep" . shell-command+-cmd-grep)
-    ("find" . shell-command+-cmd-find)
-    ("locate" . shell-command+-cmd-locate)
-    ("man" . shell-command+-cmd-man)
-    ("info" . shell-command+-cmd-info)
-    ("diff" . shell-command+-cmd-diff)
-    ("make" . compile)
-    ("sudo" . shell-command+-cmd-sudo)
-    ("cd" . shell-command+-cmd-cd))
-  "Association of command substitutes in Elisp.
-Each entry has the form (COMMAND . FUNC), where FUNC is passed
-the command string.  To disable all command substitutions, set
-this option to nil."
-  :type '(alist :key-type (string :tag "Command Name")
-                :value-type (function :tag "Substitute"))
-  :set-after '(shell-command+-use-eshell))
-
 (defcustom shell-command+-default-region nil
   "Default thing to apply a command onto.
 The default value nil will apply a buffer to the entire buffer.
@@ -132,43 +111,118 @@ is specified."
   :type '(choice (const :tag "Entire buffer" nil)
                  (symbol :tag "Thing")))
 
+(defvar shell-command+-region nil
+  "Cons-cell defining the region to operate on.")
+
+(defvar shell-command+--context-hole (make-symbol "context-hole")
+  "Symbol to be replaced by the form in the context.")
+
+(defvar shell-command+--command-hole (make-symbol "command-hole")
+  "Symbol to be replaced by the command string.")
+
 
+;;; Modular feature support
 
-(defconst shell-command+-token-regexp
-  (rx (* space)
-      (or (: ?\"
-             (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\")))))
-             ?\")
-          (: ?\'
-             (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\')))))
-             ?\')
-          (group (+ (not (any space ?\\ ?\" ?\')))
-                 (* ?\\ anychar (* (not (any space ?\\ ?\" ?\'))))))
-      (* space))
-  "Regular expression for tokenizing shell commands.")
+(defcustom shell-command+-features
+  (list #'shell-command+-expand-%
+        #'shell-command+-command-substitution
+        #'shell-command+-redirect-output
+        #'shell-command+-implicit-cd)
+  "List of features to use by `shell-command+'.
+Each element of the list is a symbol designating a function to
+call in order.  Each is passed the parsed shell command and an
+form, and a context to evaluate the form in using `eval', and
+returns the modified command, form and context in a list."
+  :type '(repeat function))
 
-(defun shell-command+-tokenize (command &optional expand)
-  "Return list of tokens of COMMAND.
-If EXPAND is non-nil, expand wildcards."
-  (let ((pos 0) tokens)
-    (while (string-match shell-command+-token-regexp command pos)
-      (push (let ((tok (match-string 2 command)))
-              (if (and expand tok)
-                  (or (file-expand-wildcards tok) (list tok))
-                (list (replace-regexp-in-string
-                       (rx (* ?\\ ?\\) (group ?\\ (group anychar)))
-                       "\\2"
-                       (or (match-string 2 command)
-                           (match-string 1 command))
-                       nil nil 1))))
-            tokens)
-      (when (= pos (match-end 0))
-        (error "Zero-width token parsed"))
-      (setq pos (match-end 0)))
-    (unless (= pos (length command))
-      (error "Tokenization error at %S in string %S (parsed until %d, instead of %d)"
-             (substring command pos) command pos (length command)))
-    (apply #'append (nreverse tokens))))
+
+;;;; Input-output redirection
+
+(defcustom shell-command+-flip-redirection nil
+  "Flip the meaning of < and > at the beginning of a command."
+  :type 'boolean)
+
+(defun shell-command+-redirect-output (parse form context)
+  "Replace form with a command that redirects input and output.
+For PARSE, FORM and CONTEXT see `shell-command+-features'."
+  (pcase-let* ((`(,_ ,mode ,_ ,_) parse)
+               (beg (car shell-command+-region))
+               (end (cdr shell-command+-region)))
+    (list parse
+          (cond ((if shell-command+-flip-redirection
+                     (eq mode 'output) (eq mode 'input))
+                 `(progn
+                    (delete-region ,beg ,end)
+                    (shell-command ,shell-command+--command-hole t shell-command-default-error-buffer))
+                 (exchange-point-and-mark))
+                ((if shell-command+-flip-redirection
+                     (eq mode 'input) (eq mode 'output))
+                 `(shell-command-on-region
+                   ,beg ,end ,shell-command+--command-hole nil nil
+                   shell-command-default-error-buffer t))
+                ((eq mode 'pipe)
+                 `(shell-command-on-region
+                   ,beg ,end ,shell-command+--command-hole t t
+                   shell-command-default-error-buffer t))
+                (t form))
+          context)))
+
+
+;;;; % (file name) expansion
+
+(defcustom shell-command+-enable-file-substitution t
+  "Enable the substitution of \"%s\" with the current file name."
+  :set (lambda (_sym val)
+         (if val
+             (unless (member 'shell-command+-expand-%
+                             shell-command+-features)
+               (push 'shell-command+-expand-%
+                     shell-command+-features))
+           (setq shell-command+-features
+                 (delete 'shell-command+-expand-%
+                         shell-command+-features))))
+  :type 'boolean)
+(make-obsolete-variable 'shell-command+-enable-file-substitution
+                        'shell-command+-features
+                        "3.0.0")
+
+(defun shell-command+-expand-% (parse form context)
+  "Replace occurrences of \"%\" in the command.
+For PARSE, FORM and CONTEXT see `shell-command+-features'."
+  (setf (nth 3 parse)
+        (replace-regexp-in-string
+         (rx (* ?\\ ?\\) (or ?\\ (group "%")))
+         buffer-file-name (nth 3 parse)))
+  (list parse form context))
+
+
+;;;; Implicit cd
+
+(defun shell-command+-expand-path (path)
+  "Expand any PATH into absolute path with additional tricks.
+
+Furthermore, replace each sequence with three or more `.'s with a
+proper upwards directory pointers.  This means that '....' becomes
+'../../../..', and so on."
+  (expand-file-name
+   (replace-regexp-in-string
+    (rx (>= 2 "."))
+    (lambda (sub)
+      (mapconcat #'identity (make-list (1- (length sub)) "..") "/"))
+    path)))
+
+(defun shell-command+-implicit-cd (parse form context)
+  "Modify the `default-directory' in CONTEXT.
+For PARSE, FORM and CONTEXT see `shell-command+-features'."
+  (pcase-let* ((`(,dir ,_ ,_ ,_) parse))
+    (list parse form
+          (if dir
+              `(let ((default-directory ,(shell-command+-expand-path dir)))
+                 ,context)
+            context))))
+
+
+;;;; Command substitution
 
 (defun shell-command+-cmd-grep (command)
   "Convert COMMAND into a `grep' call."
@@ -229,7 +283,80 @@ If EXPAND is non-nil, expand wildcards."
   (pcase-let ((`(,_ ,directory) (shell-command+-tokenize command)))
     (cd directory)))
 
+(defcustom shell-command+-substitute-alist
+  '(("grep" . shell-command+-cmd-grep)
+    ("fgrep" . shell-command+-cmd-grep)
+    ("agrep" . shell-command+-cmd-grep)
+    ("egrep" . shell-command+-cmd-grep)
+    ("rgrep" . shell-command+-cmd-grep)
+    ("find" . shell-command+-cmd-find)
+    ("locate" . shell-command+-cmd-locate)
+    ("man" . shell-command+-cmd-man)
+    ("info" . shell-command+-cmd-info)
+    ("diff" . shell-command+-cmd-diff)
+    ("make" . compile)
+    ("sudo" . shell-command+-cmd-sudo)
+    ("cd" . shell-command+-cmd-cd))
+  "Association of command substitutes in Elisp.
+Each entry has the form (COMMAND . FUNC), where FUNC is passed
+the command string.  To disable all command substitutions, set
+this option to nil."
+  :type '(alist :key-type (string :tag "Command Name")
+                :value-type (function :tag "Substitute"))
+  :set-after '(shell-command+-use-eshell))
+
+(defun shell-command+-command-substitution (parse form context)
+  "Check if FORM can be replaced by some other function call.
+This is done by querying `shell-command+-substitute-alist'.  FORM
+PARSE, FORM and CONTEXT see `shell-command+-features'."
+  (pcase-let* ((`(,_ ,mode ,command ,all) parse))
+    (list parse
+          (if-let* ((fn (assoc command shell-command+-substitute-alist))
+                    ((not (eq mode 'literal))))
+              `(,(cdr fn) ,all) form)
+          context)))
+
 
+;;; Command tokenization
+
+(defconst shell-command+-token-regexp
+  (rx (* space)
+      (or (: ?\"
+             (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\")))))
+             ?\")
+          (: ?\'
+             (group-n 1 (* (or (: ?\\ anychar) (not (any ?\\ ?\')))))
+             ?\')
+          (group (+ (not (any space ?\\ ?\" ?\')))
+                 (* ?\\ anychar (* (not (any space ?\\ ?\" ?\'))))))
+      (* space))
+  "Regular expression for tokenizing shell commands.")
+
+(defun shell-command+-tokenize (command &optional expand)
+  "Return list of tokens of COMMAND.
+If EXPAND is non-nil, expand wildcards."
+  (let ((pos 0) tokens)
+    (while (string-match shell-command+-token-regexp command pos)
+      (push (let ((tok (match-string 2 command)))
+              (if (and expand tok)
+                  (or (file-expand-wildcards tok) (list tok))
+                (list (replace-regexp-in-string
+                       (rx (* ?\\ ?\\) (group ?\\ (group anychar)))
+                       "\\2"
+                       (or (match-string 2 command)
+                           (match-string 1 command))
+                       nil nil 1))))
+            tokens)
+      (when (= pos (match-end 0))
+        (error "Zero-width token parsed"))
+      (setq pos (match-end 0)))
+    (unless (= pos (length command))
+      (error "Tokenization error at %S in string %S (parsed until %d, instead of %d)"
+             (substring command pos) command pos (length command)))
+    (apply #'append (nreverse tokens))))
+
+
+;;; Command parsing
 
 (defconst shell-command+--command-regexp
   (rx bos
@@ -254,24 +381,11 @@ If EXPAND is non-nil, expand wildcards."
        (group (+ (not space)))
        ;; Parse arguments
        (*? space)
-       (group (*? not-newline)))
+       (group (*? anything)))
       ;; Ignore all trailing whitespace
       (* space)
       eos)
   "Regular expression to parse `shell-command+' input.")
-
-(defun shell-command+-expand-path (path)
-  "Expand any PATH into absolute path with additional tricks.
-
-Furthermore, replace each sequence with three or more `.'s with a
-proper upwards directory pointers.  This means that '....' becomes
-'../../../..', and so on."
-  (expand-file-name
-   (replace-regexp-in-string
-    (rx (>= 2 "."))
-    (lambda (sub)
-      (mapconcat #'identity (make-list (1- (length sub)) "..") "/"))
-    path)))
 
 (defun shell-command+-parse (command)
   "Return parsed representation of COMMAND.
@@ -286,11 +400,9 @@ entire command."
       (error "Invalid command"))
     (let ((dir (match-string-no-properties 1 command))
           (ind (cond ((string= (match-string-no-properties 2 command) "<")
-                      (if shell-command+-flip-redirection
-                          'output 'input))
+                      'input)
                      ((string= (match-string-no-properties 2 command) ">")
-                      (if shell-command+-flip-redirection
-                          'input 'output))
+                      'output)
                      ((string= (match-string-no-properties 2 command) "|")
                       'pipe)
                      ((or (string= (match-string-no-properties 2 command) "!")
@@ -302,18 +414,13 @@ entire command."
                               (member "|" (shell-command+-tokenize args)))))
                       'literal)))
           (cmd (match-string-no-properties 4 command))
-          (all (condition-case nil
-                   (if shell-command+-enable-file-substitution
-                       (replace-regexp-in-string
-                        (rx (* ?\\ ?\\) (or ?\\ (group "%")))
-                        buffer-file-name
-                        (match-string-no-properties 3 command)
-                        nil nil 1)
-                     (match-string-no-properties 3 command))
-                 (error (match-string-no-properties 3 command)))))
+          (all (match-string-no-properties 3 command)))
       (if (or (null dir) (file-directory-p dir))
           (list dir ind cmd all)
         (list nil ind dir (format "%s %s" dir all))))))
+
+
+;;; Main entry point
 
 ;;;###autoload
 (defun shell-command+ (command &optional beg end)
@@ -355,32 +462,32 @@ between BEG and END.  Otherwise the whole buffer is processed."
                        (cond ((use-region-p) (region-end))
                              (bounds (cdr bounds))
                              ((point-max))))))
-  (pcase-let* ((`(,path ,mode ,command ,rest) (shell-command+-parse command))
-               (default-directory (shell-command+-expand-path (or path "."))))
-    ;; Make sure the previous output buffer was killed, to prevent
-    ;; TRAMP paths from persisting between commands.
-    (let ((shell-command-buffer (get-buffer (or (bound-and-true-p shell-command-buffer-name)
-                                                "*Shell Command Output*"))))
-      (when shell-command-buffer
-        (kill-buffer shell-command-buffer)))
-    (cond ((eq mode 'input)
-           (delete-region beg end)
-           (shell-command rest t shell-command-default-error-buffer)
-           (exchange-point-and-mark))
-          ((eq mode 'output)
-           (shell-command-on-region
-            beg end rest nil nil
-            shell-command-default-error-buffer t))
-          ((eq mode 'pipe)
-           (shell-command-on-region
-            beg end rest t t
-            shell-command-default-error-buffer t))
-          ((and (not (eq mode 'literal))
-                (assoc command shell-command+-substitute-alist))
-           (funcall (cdr (assoc command shell-command+-substitute-alist))
-                    rest))
-          (t (shell-command rest (and current-prefix-arg t)
-                            shell-command-default-error-buffer)))))
+  ;; Make sure in case there is a previous output buffer, that it has
+  ;; the same `default-directory' as the `default-directory' caller.
+  (let ((shell-command-buffer (get-buffer (or (bound-and-true-p shell-command-buffer-name)
+                                              "*Shell Command Output*")))
+        (def-dir default-directory))
+    (when shell-command-buffer
+      (with-current-buffer shell-command-buffer
+        (cd def-dir))))
+  (let ((shell-command+-region (cons beg end))
+        (parse (shell-command+-parse command)))
+    (named-let next ((rest shell-command+-features)
+                     (parse parse)
+                     (form `(shell-command
+                             ,shell-command+--command-hole
+                             (and current-prefix-arg t)
+                             shell-command-default-error-buffer))
+                     (context shell-command+--context-hole))
+      (if rest
+          (apply #'next (cdr rest) (funcall (car rest) parse form context))
+        (save-excursion
+          (eval (cl-subst (cl-subst (nth 3 parse)
+                                    shell-command+--command-hole
+                                    form)
+                          shell-command+--context-hole
+                          context)
+                t))))))
 
 (provide 'shell-command+)
 
