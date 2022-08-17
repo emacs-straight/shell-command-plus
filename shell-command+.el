@@ -482,6 +482,8 @@ between BEG and END.  Otherwise the whole buffer is processed."
       (if rest
           (apply #'next (cdr rest) (funcall (car rest) parse form context))
         (save-excursion
+          ;; CHANGEME: Have the functions generate functions that are
+          ;; funcalled instead of a lisp term that is evaluated?
           (eval (cl-subst (cl-subst (nth 3 parse)
                                     shell-command+--command-hole
                                     form)
