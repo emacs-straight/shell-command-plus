@@ -54,23 +54,23 @@
     (should (string= command "command"))
     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-path ()
-  "Make sure a simple command with an argument is recognized."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse "... command arg arg2")))
-    (should (string= path "..."))
-    (should (null mode))
-    (should (string= command "command"))
-    (should (string= rest "command arg arg2"))))
+;; (ert-deftest sc+-path ()
+;;   "Make sure a simple command with an argument is recognized."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse "... command arg arg2")))
+;;     (should (string= path "..."))
+;;     (should (null mode))
+;;     (should (string= command "command"))
+;;     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-path2 ()
-  "Make sure a simple command with an argument is recognized."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse ".../dir command arg arg2")))
-    (should (string= path ".../dir"))
-    (should (null mode))
-    (should (string= command "command"))
-    (should (string= rest "command arg arg2"))))
+;; (ert-deftest sc+-path2 ()
+;;   "Make sure a simple command with an argument is recognized."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse ".../dir command arg arg2")))
+;;     (should (string= path ".../dir"))
+;;     (should (null mode))
+;;     (should (string= command "command"))
+;;     (should (string= rest "command arg arg2"))))
 
 (ert-deftest sc+-input ()
   "Make sure input is recognized."
@@ -99,51 +99,51 @@
     (should (string= command "command"))
     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-input-and-path ()
-  "Check if input and path conflict."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse "... < command arg arg2")))
-    (should (string= "..." path))
-    (should (eq mode 'input))
-    (should (string= command "command"))
-    (should (string= rest "command arg arg2"))))
+;; (ert-deftest sc+-input-and-path ()
+;;   "Check if input and path conflict."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse "... < command arg arg2")))
+;;     (should (string= "..." path))
+;;     (should (eq mode 'input))
+;;     (should (string= command "command"))
+;;     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-output-and-path ()
-  "Check if output and path conflict."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse "... > command arg arg2")))
-    (should (string= "..." path))
-    (should (eq mode 'output))
-    (should (string= command "command"))
-    (should (string= rest "command arg arg2"))))
+;; (ert-deftest sc+-output-and-path ()
+;;   "Check if output and path conflict."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse "... > command arg arg2")))
+;;     (should (string= "..." path))
+;;     (should (eq mode 'output))
+;;     (should (string= command "command"))
+;;     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-pipe-and-path ()
-  "Check if pipe and path conflict."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse "... | command arg arg2")))
-    (should (string= "..." path))
-    (should (eq mode 'pipe))
-    (should (string= command "command"))
-    (should (string= rest "command arg arg2"))))
+;; (ert-deftest sc+-pipe-and-path ()
+;;   "Check if pipe and path conflict."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse "... | command arg arg2")))
+;;     (should (string= "..." path))
+;;     (should (eq mode 'pipe))
+;;     (should (string= command "command"))
+;;     (should (string= rest "command arg arg2"))))
 
-(ert-deftest sc+-file-replace ()
-  "Check if %'s are replaced."
-  (pcase-let* ((buffer-file-name "somefile")
-               (`(,path ,mode ,command ,rest)
-                   (shell-command+-parse "command %")))
-    (should (null path))
-    (should (null mode))
-    (should (string= command "command"))
-    (should (string= rest (concat "command " buffer-file-name)))))
+;; (ert-deftest sc+-file-replace ()
+;;   "Check if %'s are replaced."
+;;   (pcase-let* ((buffer-file-name "somefile")
+;;                (`(,path ,mode ,command ,rest)
+;;                    (shell-command+-parse "command %")))
+;;     (should (null path))
+;;     (should (null mode))
+;;     (should (string= command "command"))
+;;     (should (string= rest (concat "command " buffer-file-name)))))
 
-(ert-deftest sc+-file-noreplace ()
-  "Check if %'s are replaced."
-  (pcase-let* ((`(,path ,mode ,command ,rest)
-                (shell-command+-parse "command \\%")))
-    (should (null path))
-    (should (null mode))
-    (should (string= command "command"))
-    (should (string= rest (concat "command \\%")))))
+;; (ert-deftest sc+-file-noreplace ()
+;;   "Check if %'s are replaced."
+;;   (pcase-let* ((`(,path ,mode ,command ,rest)
+;;                 (shell-command+-parse "command \\%")))
+;;     (should (null path))
+;;     (should (null mode))
+;;     (should (string= command "command"))
+;;     (should (string= rest (concat "command \\%")))))
 
 (ert-deftest sc+-expand ()
   "Test that `shell-command+-expand-path' works as expected."

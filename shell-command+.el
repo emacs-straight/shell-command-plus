@@ -6,7 +6,7 @@
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
 ;; Version: 3.0.0pre
 ;; Keywords: unix, processes, convenience
-;; Package-Requires: ((emacs "24.1") (compat "28.1.2.0"))
+;; Package-Requires: ((emacs "24.1"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -114,10 +114,10 @@ is specified."
 (defvar shell-command+-region nil
   "Cons-cell defining the region to operate on.")
 
-(defvar shell-command+--context-hole (make-symbol "context-hole")
+(defconst shell-command+--context-hole (make-symbol "context-hole")
   "Symbol to be replaced by the form in the context.")
 
-(defvar shell-command+--command-hole (make-symbol "command-hole")
+(defconst shell-command+--command-hole (make-symbol "command-hole")
   "Symbol to be replaced by the command string.")
 
 
@@ -311,9 +311,9 @@ This is done by querying `shell-command+-substitute-alist'.  FORM
 PARSE, FORM and CONTEXT see `shell-command+-features'."
   (pcase-let* ((`(,_ ,mode ,command ,all) parse))
     (list parse
-          (if-let* ((fn (assoc command shell-command+-substitute-alist))
-                    ((not (eq mode 'literal))))
-              `(,(cdr fn) ,all) form)
+          (let ((fn (assoc command shell-command+-substitute-alist)))
+            (if (and fn (not (eq mode 'literal)))
+                `(,(cdr fn) ,all) form))
           context)))
 
 
@@ -470,26 +470,29 @@ between BEG and END.  Otherwise the whole buffer is processed."
     (when shell-command-buffer
       (with-current-buffer shell-command-buffer
         (cd def-dir))))
-  (let ((shell-command+-region (cons beg end))
+  (let ((shell-command+-features shell-command+-features)
+        (shell-command+-region (cons beg end))
+        (form `(shell-command
+                ,shell-command+--command-hole
+                (and current-prefix-arg t)
+                shell-command-default-error-buffer))
+        (context shell-command+--context-hole)
         (parse (shell-command+-parse command)))
-    (named-let next ((rest shell-command+-features)
-                     (parse parse)
-                     (form `(shell-command
-                             ,shell-command+--command-hole
-                             (and current-prefix-arg t)
-                             shell-command-default-error-buffer))
-                     (context shell-command+--context-hole))
-      (if rest
-          (apply #'next (cdr rest) (funcall (car rest) parse form context))
-        (save-excursion
-          ;; CHANGEME: Have the functions generate functions that are
-          ;; funcalled instead of a lisp term that is evaluated?
-          (eval (cl-subst (cl-subst (nth 3 parse)
-                                    shell-command+--command-hole
-                                    form)
-                          shell-command+--context-hole
-                          context)
-                t))))))
+    (while shell-command+-features
+      (let ((step (funcall (pop shell-command+-features)
+                           parse form context)))
+        (setq parse (nth 0 step)
+              form (nth 1 step)
+              context (nth 2 step))))
+    (save-excursion
+      ;; CHANGEME: Have the functions generate functions that are
+      ;; funcalled instead of a lisp term that is evaluated?
+      (eval (cl-subst (cl-subst (nth 3 parse)
+                                shell-command+--command-hole
+                                form)
+                      shell-command+--context-hole
+                      context)
+            t))))
 
 (provide 'shell-command+)
 
