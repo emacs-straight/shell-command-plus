@@ -21,7 +21,8 @@ Using [`setup`][setup] I configure `shell-command+` as so:
 
 ~~~elisp
 (setup (:package shell-command+)
-  (:option shell-command+-prompt "$ ")
+  (:option (remove shell-command+-features) #'shell-command+-implicit-cd
+           shell-command+-prompt "$ ")
   (:bind-into dired "M-!" shell-command+)
   (:global "M-!" shell-command+))
 ~~~
@@ -44,4 +45,3 @@ Copying
 [setup]: http://elpa.gnu.org/packages/setup.html
 [ca]: https://www.gnu.org/software/emacs/manual/html_node/emacs/Copyright-Assignment.html#Copyright-Assignment
 [gpl3]: https://www.gnu.org/licenses/gpl-3.0.en.html
-
