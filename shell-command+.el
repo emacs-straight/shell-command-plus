@@ -108,15 +108,6 @@ is specified."
   :type '(choice (const :tag "Entire buffer" nil)
                  (symbol :tag "Thing")))
 
-(defvar shell-command+-region nil
-  "Cons-cell defining the region to operate on.")
-
-(defconst shell-command+--context-hole (make-symbol "context-hole")
-  "Symbol to be replaced by the form in the context.")
-
-(defconst shell-command+--command-hole (make-symbol "command-hole")
-  "Symbol to be replaced by the command string.")
-
 
 ;;; Modular feature support
 
@@ -143,25 +134,24 @@ returns the modified command, form and context in a list."
 (defun shell-command+-redirect-output (parse form context)
   "Replace form with a command that redirects input and output.
 For PARSE, FORM and CONTEXT see `shell-command+-features'."
-  (pcase-let* ((`(,_ ,mode ,_ ,_) parse)
-               (beg (car shell-command+-region))
-               (end (cdr shell-command+-region)))
+  (pcase-let ((`(,_ ,mode ,_ ,_) parse))
     (list parse
           (cond ((if shell-command+-flip-redirection
                      (eq mode 'output) (eq mode 'input))
-                 (exchange-point-and-mark)
-                 `(progn
-                    (delete-region ,beg ,end)
-                    (shell-command ,shell-command+--command-hole t shell-command-default-error-buffer)))
+                 (lambda (input beg end)
+                   (delete-region beg end)
+                   (shell-command input t shell-command-default-error-buffer)))
                 ((if shell-command+-flip-redirection
                      (eq mode 'input) (eq mode 'output))
-                 `(shell-command-on-region
-                   ,beg ,end ,shell-command+--command-hole nil nil
-                   shell-command-default-error-buffer t))
+                 (lambda (input beg end)
+                   (shell-command-on-region
+                    beg end input nil nil
+                    shell-command-default-error-buffer t)))
                 ((eq mode 'pipe)
-                 `(shell-command-on-region
-                   ,beg ,end ,shell-command+--command-hole t t
-                   shell-command-default-error-buffer t))
+                 (lambda (input beg end)
+                   (shell-command-on-region
+                    beg end input t t
+                    shell-command-default-error-buffer t)))
                 (t form))
           context)))
 
@@ -187,10 +177,11 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
 (defun shell-command+-expand-% (parse form context)
   "Replace occurrences of \"%\" in the command.
 For PARSE, FORM and CONTEXT see `shell-command+-features'."
-  (setf (nth 3 parse)
-        (replace-regexp-in-string
-         (rx (* ?\\ ?\\) (or ?\\ (group "%")))
-         buffer-file-name (nth 3 parse)))
+  (when buffer-file-name
+    (setf (nth 3 parse)
+          (replace-regexp-in-string
+           (rx (* ?\\ ?\\) (or ?\\ (group "%")))
+           buffer-file-name (nth 3 parse))))
   (list parse form context))
 
 
@@ -215,8 +206,9 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
   (pcase-let* ((`(,dir ,_ ,_ ,_) parse))
     (list parse form
           (if dir
-              `(let ((default-directory ,(shell-command+-expand-path dir)))
-                 ,context)
+              (lambda (fn input beg end)
+                (let ((default-directory (shell-command+-expand-path dir)))
+                  (funcall fn input beg end)))
             context))))
 
 
@@ -307,11 +299,12 @@ this option to nil."
   "Check if FORM can be replaced by some other function call.
 This is done by querying `shell-command+-substitute-alist'.  FORM
 PARSE, FORM and CONTEXT see `shell-command+-features'."
-  (pcase-let* ((`(,_ ,mode ,command ,all) parse))
+  (pcase-let ((`(,_ ,mode ,name ,_) parse))
     (list parse
-          (let ((fn (assoc command shell-command+-substitute-alist)))
+          (let ((fn (assoc name shell-command+-substitute-alist)))
             (if (and fn (not (eq mode 'literal)))
-                `(,(cdr fn) ,all) form))
+                (apply-partially fn)
+              form))
           context)))
 
 
@@ -413,7 +406,9 @@ entire command."
                       'literal)))
           (cmd (match-string-no-properties 4 command))
           (all (match-string-no-properties 3 command)))
-      (if (or (null dir) (file-directory-p dir))
+      (if (or (null dir) (file-directory-p (shell-command+-expand-path' dir)))
+          ;; FIXME: Avoid hard-coding the `shell-command+-expand-path'
+          ;; check into the parsing function.
           (list dir ind cmd all)
         (list nil ind dir (format "%s %s" dir all))))))
 
@@ -469,12 +464,12 @@ between BEG and END.  Otherwise the whole buffer is processed."
       (with-current-buffer shell-command-buffer
         (cd def-dir))))
   (let ((shell-command+-features shell-command+-features)
-        (shell-command+-region (cons beg end))
-        (form `(shell-command
-                ,shell-command+--command-hole
-                (and current-prefix-arg t)
-                shell-command-default-error-buffer))
-        (context shell-command+--context-hole)
+        (form (lambda (input _beg _end)
+                (shell-command
+                 input
+                 (and current-prefix-arg t)
+                 shell-command-default-error-buffer)))
+        (context #'funcall)
         (parse (shell-command+-parse command)))
     (while shell-command+-features
       (let ((step (funcall (pop shell-command+-features)
@@ -485,12 +480,7 @@ between BEG and END.  Otherwise the whole buffer is processed."
     (save-excursion
       ;; CHANGEME: Have the functions generate functions that are
       ;; funcalled instead of a lisp term that is evaluated?
-      (eval (cl-subst (cl-subst (nth 3 parse)
-                                shell-command+--command-hole
-                                form)
-                      shell-command+--context-hole
-                      context)
-            t))))
+      (funcall context form (nth 3 parse) beg end))))
 
 (provide 'shell-command+)
 
