@@ -6,7 +6,7 @@
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
 ;; Version: 3.0.0pre
 ;; Keywords: unix, processes, convenience
-;; Package-Requires: ((emacs "24.1"))
+;; Package-Requires: ((emacs "24.3"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -70,6 +70,13 @@
 ;; - Remove `shell-command+-use-eshell'.
 ;; - Deprecate `shell-command+-enable-file-substitution'.
 ;; - Minor bug fixes and stability improvements.
+;;
+;; Thanks to Visuwesh for many productive discussions on the mailing
+;; list:
+;;
+;; - https://lists.sr.ht/~pkal/public-inbox/%3C87czduxwt4.fsf%40gmail.com%3E
+;; - https://lists.sr.ht/~pkal/public-inbox/%3C878roixwds.fsf%40gmail.com%3E
+;; - https://lists.sr.ht/~pkal/public-inbox/%3C87edxmakqq.fsf%40gmail.com%3E
 
 ;;;; Version 2.3.0 (15Oct21)
 
@@ -86,8 +93,6 @@
 
 (eval-when-compile (require 'rx))
 (eval-when-compile (require 'pcase))
-(require 'diff)
-(require 'info)
 (require 'thingatpt)
 
 (defgroup shell-command+ nil
@@ -119,9 +124,14 @@ is specified."
         #'shell-command+-implicit-cd)
   "List of features to use by `shell-command+'.
 Each element of the list is a symbol designating a function to
-call in order.  Each is passed the parsed shell command and an
-form, and a context to evaluate the form in using `eval', and
-returns the modified command, form and context in a list."
+call in order.  Each is passed the parsed shell command (see
+`shell-command+-parse'), and two functions implementing the
+\"main functionality\" and a context.  The former is invoked with
+three arguments, the final command string, and two points
+designating the beginning and ending of the implicit region.  The
+context function is invoked with the previous function passed as
+a function object and the same argument as the function,
+totalling to four arguments."
   :type '(repeat function))
 
 
@@ -140,7 +150,8 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
                      (eq mode 'output) (eq mode 'input))
                  (lambda (input beg end)
                    (delete-region beg end)
-                   (shell-command input t shell-command-default-error-buffer)))
+                   (shell-command input t shell-command-default-error-buffer)
+                   (exchange-point-and-mark)))
                 ((if shell-command+-flip-redirection
                      (eq mode 'input) (eq mode 'output))
                  (lambda (input beg end)
@@ -151,9 +162,18 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
                  (lambda (input beg end)
                    (shell-command-on-region
                     beg end input t t
-                    shell-command-default-error-buffer t)))
+                    shell-command-default-error-buffer t)
+                   (exchange-point-and-mark)))
                 (t form))
           context)))
+
+(put 'shell-command+-redirect-output
+     'shell-command+-docstring
+     "When COMMAND starts with...
+  <  the output of COMMAND replaces the current selection
+  >  COMMAND is run with the current selection as input
+  |  the current selection is filtered through COMMAND
+  !  COMMAND is simply executed (same as without any prefix)")
 
 
 ;;;; % (file name) expansion
@@ -184,6 +204,11 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
            buffer-file-name (nth 3 parse))))
   (list parse form context))
 
+(put 'shell-command+-expand-%
+     'shell-command+-docstring
+     "Inside COMMAND, % is replaced with the current file name.  To
+insert a literal % quote it using a backslash.")
+
 
 ;;;; Implicit cd
 
@@ -210,6 +235,16 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
                 (let ((default-directory (shell-command+-expand-path dir)))
                   (funcall fn input beg end)))
             context))))
+
+(put 'shell-command+-implicit-cd
+     'shell-command+-docstring
+     "If COMMAND is prefixed with an absolute or relative path, the
+created process will the executed in the specified path.
+
+This path can also consist pseudo-directories consisting of more
+than one \".\".  E.g. if you want to execute a command four
+directories above the current `default-directory', you can either
+prefix the command with \"../../../../\" or \"....\".")
 
 
 ;;;; Command substitution
@@ -239,15 +274,19 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
   (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command)))
     (man (mapconcat #'identity args " "))))
 
+(declare-function Info-menu "info" (menu-item &optional fork))
 (defun shell-command+-cmd-info (command)
   "Convert COMMAND into a `info' call."
+  (require 'info)
   (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command)))
     (Info-directory)
     (dolist (menu args)
       (Info-menu menu))))
 
+(declare-function diff-no-select "diff" (old new &optional switches no-async buf))
 (defun shell-command+-cmd-diff (command)
   "Convert COMMAND into `diff' call."
+  (require 'diff)
   (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command t)))
     (let (files flags)
       (dolist (arg args)
@@ -302,10 +341,22 @@ PARSE, FORM and CONTEXT see `shell-command+-features'."
   (pcase-let ((`(,_ ,mode ,name ,_) parse))
     (list parse
           (let ((fn (assoc name shell-command+-substitute-alist)))
+            ;; FIXME: It might be that `name' is modified in such a
+            ;; way that this check fails and.  Currently no function
+            ;; in `shell-command+-features' does this.
             (if (and fn (not (eq mode 'literal)))
-                (apply-partially fn)
+                (lambda (command _beg _end)
+                  (funcall (cdr fn) command))
               form))
           context)))
+
+(put 'shell-command+-command-substitution
+     'shell-command+-docstring
+     "If the first word in COMMAND, matches an entry in the alist
+`shell-command+-substitute-alist', the respective function is
+used to execute the command instead of passing it to a shell
+process.  This behaviour can be inhibited by prefixing COMMAND
+with !.")
 
 
 ;;; Command tokenization
@@ -406,7 +457,7 @@ entire command."
                       'literal)))
           (cmd (match-string-no-properties 4 command))
           (all (match-string-no-properties 3 command)))
-      (if (or (null dir) (file-directory-p (shell-command+-expand-path' dir)))
+      (if (or (null dir) (file-directory-p (shell-command+-expand-path dir)))
           ;; FIXME: Avoid hard-coding the `shell-command+-expand-path'
           ;; check into the parsing function.
           (list dir ind cmd all)
@@ -416,31 +467,36 @@ entire command."
 ;;; Main entry point
 
 ;;;###autoload
+(defun shell-command+--make-docstring ()
+  "Return a docstring for `shell-command+'."
+  (with-temp-buffer
+    (insert (documentation (symbol-function 'shell-command+) 'raw))
+    (dolist (feature shell-command+-features)
+      (if (fboundp 'make-separator-line)
+          (insert "\n" (make-separator-line) "\n")
+        (newline 2))
+      (insert
+       (let ((doc (get feature 'shell-command+-docstring)))
+         (or doc (documentation feature)
+             (format "`%S' is not explicitly documented." feature)))))
+    (buffer-string)))
+
+;;;###autoload
+(put 'shell-command+ 'function-documentation
+     '(shell-command+--make-docstring))
+
+;;;###autoload
 (defun shell-command+ (command &optional beg end)
-  "Intelligently execute string COMMAND in inferior shell.
+  "An extended alternative to `shell-command'.
 
-If COMMAND is prefixed with an absolute or relative path, the
-created process will the executed in the specified path.
+COMMAND may be parsed and modified based on the comments of
+`shell-command+-features'.  If the command modifies the current
+buffer contents, it will do so between BEG and END.  If BEG or
+END are not passed, the beginning or end of the buffer will
+respectively be assumed as a fallback.
 
-When COMMAND starts with...
-  <  the output of COMMAND replaces the current selection
-  >  COMMAND is run with the current selection as input
-  |  the current selection is filtered through COMMAND
-  !  COMMAND is simply executed (same as without any prefix)
-
-If the first word in COMMAND, matches an entry in the alist
-`shell-command+-substitute-alist', the respective function is
-used to execute the command instead of passing it to a shell
-process.  This behaviour can be inhibited by prefixing COMMAND
-with !.
-
-Inside COMMAND, % is replaced with the current file name.  To
-insert a literal % quote it using a backslash.
-
-These extentions can all be combined with one-another.
-
-In case a region is active, `shell-command+' will only work with the region
-between BEG and END.  Otherwise the whole buffer is processed."
+The current configuration adds the following functionality, that
+can be combined but will be processed in the following order:"
   (interactive (let ((bounds (and shell-command+-default-region
                                   (bounds-of-thing-at-point
                                    shell-command+-default-region))))
@@ -450,11 +506,9 @@ between BEG and END.  Otherwise the whole buffer is processed."
                                     (abbreviate-file-name default-directory))
                           shell-command+-prompt))
                        (cond ((use-region-p) (region-beginning))
-                             (bounds (car bounds))
-                             ((point-min)))
+                             (bounds (car bounds)))
                        (cond ((use-region-p) (region-end))
-                             (bounds (cdr bounds))
-                             ((point-max))))))
+                             (bounds (cdr bounds))))))
   ;; Make sure in case there is a previous output buffer, that it has
   ;; the same `default-directory' as the `default-directory' caller.
   (let ((shell-command-buffer (get-buffer (or (bound-and-true-p shell-command-buffer-name)
@@ -463,7 +517,7 @@ between BEG and END.  Otherwise the whole buffer is processed."
     (when shell-command-buffer
       (with-current-buffer shell-command-buffer
         (cd def-dir))))
-  (let ((shell-command+-features shell-command+-features)
+  (let ((shell-command+-features shell-command+-features) ;copy binding
         (form (lambda (input _beg _end)
                 (shell-command
                  input
@@ -477,10 +531,9 @@ between BEG and END.  Otherwise the whole buffer is processed."
         (setq parse (nth 0 step)
               form (nth 1 step)
               context (nth 2 step))))
-    (save-excursion
-      ;; CHANGEME: Have the functions generate functions that are
-      ;; funcalled instead of a lisp term that is evaluated?
-      (funcall context form (nth 3 parse) beg end))))
+    (funcall context form (nth 3 parse)
+             (or beg (point-min))
+             (or end (point-max)))))
 
 (provide 'shell-command+)
 

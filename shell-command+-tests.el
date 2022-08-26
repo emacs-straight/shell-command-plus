@@ -20,6 +20,11 @@
 ;;; Commentary:
 
 ;; Tests for the `shell-command+' parsers.
+;;
+;; FIXME: Due to the changes in 93233c9g a number of tests have been
+;; disabled (see 834c026) that made implicit assumptions on the
+;; internal structure of the code.  These tests should eventually be
+;; added back to improve the automated testing.
 
 ;;; Code:
 

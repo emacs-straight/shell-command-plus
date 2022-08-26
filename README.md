@@ -1,23 +1,47 @@
-`shell-command+.el`
-===================
+`shell-command` With a Few Extra Features
+=========================================
 
-`shell-command+` is a `shell-command` substitute that makes it easier
-to run commands on regions or whole buffers, among other things.
+Find here the source for shell-command+.el, that defines an extended
+version of Emacs' `shell-command` (bound to <kbd>M-!</kbd> by
+default). See [(emacs) Single Shell] if you are
+unfamiliar with the command.
 
 `shell-command+` has been based on a function named `bang` by [Leah
-Neukirchen][leah].
+Neukirchen].
 
-How to use
-----------
+[(emacs) Single Shell]:
+	https://www.gnu.org/software/emacs/manual/html_node/emacs/Single-Shell.html
+[Leah Neukirchen]:
+	http://leahneukirchen.org/dotfiles/.emacs
 
-`shell-command+` is available from [ELPA]. It can be installed by
+Installation
+------------
+
+`shell-command+` is available from [GNU ELPA]. It can be installed by
 invoking
 
 	M-x package-install RET shell-command+ RET
 
-Bind the command `shell-command+` to any key, for example `M-!`.
+[GNU ELPA]:
+	http://elpa.gnu.org/packages/shell-command+.html
 
-Using [`setup`][setup] I configure `shell-command+` as so:
+Usage
+-----
+
+Bind the command `shell-command+` to any key, for example
+<kbd>M-!</kbd>:
+
+~~~elisp
+(global-set-key (kbd "M-!") #'shell-command+)
+~~~
+
+No further changes are necessary.  It is recommended to consult the
+`shell-command+` documentation string (`C-h f shell-command+`) and the
+`shell-command+` customisation group (`M-x customize-group
+shell-command+`).
+
+Note that [Dired] rebinds <kbd>M-!</kbd>, so it might be necessary to
+also bind `shell-command+` in `dired-mode-map`.  I do this using [setup]:
 
 ~~~elisp
 (setup (:package shell-command+)
@@ -27,21 +51,51 @@ Using [`setup`][setup] I configure `shell-command+` as so:
   (:global "M-!" shell-command+))
 ~~~
 
-Bugs
-----
+[Dired]:
+	https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html
+[setup]:
+	http://elpa.gnu.org/packages/setup.html
 
-Bugs or comments can be submitted to my [public inbox][mail].  Note
-that non-trivial contributions require a [copyright assignment][ca] to
-the FSF.
+Contribute
+----------
 
-Copying
--------
+As `shell-command+.el` is distribed as part of [GNU ELPA], and
+therefore requires a [copyright assignment] to the [FSF], for all
+non-trivial code contributions.
 
-`shell-command+.el` is distributed under the [GPL v3][gpl3] license.
+[copyright assignment]:
+	https://www.gnu.org/software/emacs/manual/html_node/emacs/Copyright-Assignment.html
+[FSF]:
+	https://www.fsf.org/
 
-[leah]: http://leahneukirchen.org/dotfiles/.emacs
-[ELPA]: http://elpa.gnu.org/packages/shell-command+.html
-[mail]: https://lists.sr.ht/~pkal/public-inbox
-[setup]: http://elpa.gnu.org/packages/setup.html
-[ca]: https://www.gnu.org/software/emacs/manual/html_node/emacs/Copyright-Assignment.html#Copyright-Assignment
-[gpl3]: https://www.gnu.org/licenses/gpl-3.0.en.html
+Source code
+-----------
+
+`shell-command+` is developed on [SourceHut].
+
+[SourceHut]:
+	https://sr.ht/~pkal/shell-command-plus
+
+Bugs and Patches
+----------------
+
+Bugs or comments can be submitted to my [public inbox].
+
+When contributing, make sure to provide test and use the existing
+tests defined in shell-command+-tests.el.  These can be easily
+executed using the bundled Makefile:
+
+	make test
+
+[public inbox]:
+	https://lists.sr.ht/~pkal/public-inbox
+
+Distribution
+------------
+
+shell-command+.el and all other source files in this directory are
+distributed under the [GNU Public License], Version 3 (like Emacs
+itself).
+
+[GNU Public License]:
+	https://www.gnu.org/licenses/gpl-3.0.en.html
