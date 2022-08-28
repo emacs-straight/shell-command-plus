@@ -4,7 +4,7 @@
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
-;; Version: 3.0.0pre
+;; Version: 2.4.0pre
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.3"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
@@ -62,11 +62,12 @@
 
 ;;; News:
 
-;;;; Version 3.0.0 (???)
+;;;; Version 2.4.0 (???)
 
 ;; - Allow adding or removing features using
 ;;   `shell-command+-features'.
 ;; - Add `shell-command+-default-region' user option.
+;; - Add optional alternative to %-expansion (`shell-command+-expand-%-fmt')
 ;; - Remove `shell-command+-use-eshell'.
 ;; - Deprecate `shell-command+-enable-file-substitution'.
 ;; - Minor bug fixes and stability improvements.
@@ -77,17 +78,6 @@
 ;; - https://lists.sr.ht/~pkal/public-inbox/%3C87czduxwt4.fsf%40gmail.com%3E
 ;; - https://lists.sr.ht/~pkal/public-inbox/%3C878roixwds.fsf%40gmail.com%3E
 ;; - https://lists.sr.ht/~pkal/public-inbox/%3C87edxmakqq.fsf%40gmail.com%3E
-
-;;;; Version 2.3.0 (15Oct21)
-
-;; - Add rgrep to shell-command+-substitute-alist
-;; - Fix shell-command+-substitute-alist customization type
-;; - Skip environmental variables when parsing a command
-;; - Check if command is being piped, in which case command
-;;   substitution is avoided.
-;; - Fix persistent sudo bug, where any command after a sudo
-;;   substitute would try to run as root
-;; - Improve command tokenization performance slightly.
 
 ;;; Code:
 
@@ -167,7 +157,7 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
                 (t form))
           context)))
 
-(put 'shell-command+-redirect-output
+(put #'shell-command+-redirect-output
      'shell-command+-docstring
      "When COMMAND starts with...
   <  the output of COMMAND replaces the current selection
@@ -192,7 +182,7 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
   :type 'boolean)
 (make-obsolete-variable 'shell-command+-enable-file-substitution
                         'shell-command+-features
-                        "3.0.0")
+                        "2.4.0")
 
 (defun shell-command+-expand-% (parse form context)
   "Replace occurrences of \"%\" in the command.
@@ -204,10 +194,43 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
            buffer-file-name (nth 3 parse))))
   (list parse form context))
 
-(put 'shell-command+-expand-%
+(put #'shell-command+-expand-%
      'shell-command+-docstring
      "Inside COMMAND, % is replaced with the current file name.  To
 insert a literal % quote it using a backslash.")
+
+
+;;;; generic %-sequence expansion
+
+(defun shell-command+-expand-%-fmt-spec ()
+  "Return a `format-spec' specification for `shell-command+-expand-%-fmt'."
+  `((?f . ,(buffer-file-name))
+    (?o . ,(buffer-file-name (other-buffer)))
+    (?b . ,(and (buffer-file-name) (file-name-base (buffer-file-name))))
+    (?e . ,(and (buffer-file-name) (file-name-extension (buffer-file-name))))
+    (?y . ,(current-kill 0))))
+
+(defun shell-command+-expand-%-fmt (parse form context)
+  "Generalised version of `shell-command+-expand-%'.
+For PARSE, FORM and CONTEXT see `shell-command+-features'."
+  ;; Idea stolen from Alvaro Ramirez' "dwim-shell-command"
+  (setf (nth 3 parse)
+        (format-spec
+         (nth 3 parse)
+         (shell-command+-expand-%-fmt-spec)))
+  (list parse form context))
+
+(put #'shell-command+-expand-%-fmt
+     'shell-command+-docstring
+     "Inside COMMAND, replace the following %-sequences:
+
+- %f with the result of `buffer-file-name'
+- %o with the result of `buffer-file-name' of `other-buffer'
+- %b with the base of `buffer-file-name'
+- %e with the file extension of `buffer-file-name'
+- %y with the head of the kill ring
+
+See `format-spec' for details on how %-sequences are handled.")
 
 
 ;;;; Implicit cd
@@ -236,7 +259,7 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
                   (funcall fn input beg end)))
             context))))
 
-(put 'shell-command+-implicit-cd
+(put #'shell-command+-implicit-cd
      'shell-command+-docstring
      "If COMMAND is prefixed with an absolute or relative path, the
 created process will the executed in the specified path.
@@ -350,7 +373,7 @@ PARSE, FORM and CONTEXT see `shell-command+-features'."
               form))
           context)))
 
-(put 'shell-command+-command-substitution
+(put #'shell-command+-command-substitution
      'shell-command+-docstring
      "If the first word in COMMAND, matches an entry in the alist
 `shell-command+-substitute-alist', the respective function is
@@ -482,7 +505,7 @@ entire command."
     (buffer-string)))
 
 ;;;###autoload
-(put 'shell-command+ 'function-documentation
+(put #'shell-command+ 'function-documentation
      '(shell-command+--make-docstring))
 
 ;;;###autoload
