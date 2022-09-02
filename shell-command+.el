@@ -4,7 +4,7 @@
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
-;; Version: 2.4.0pre
+;; Version: 2.4.1
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.3"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
@@ -67,7 +67,6 @@
 ;; - Allow adding or removing features using
 ;;   `shell-command+-features'.
 ;; - Add `shell-command+-default-region' user option.
-;; - Add optional alternative to %-expansion (`shell-command+-expand-%-fmt')
 ;; - Remove `shell-command+-use-eshell'.
 ;; - Deprecate `shell-command+-enable-file-substitution'.
 ;; - Minor bug fixes and stability improvements.
@@ -198,39 +197,6 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
      'shell-command+-docstring
      "Inside COMMAND, % is replaced with the current file name.  To
 insert a literal % quote it using a backslash.")
-
-
-;;;; generic %-sequence expansion
-
-(defun shell-command+-expand-%-fmt-spec ()
-  "Return a `format-spec' specification for `shell-command+-expand-%-fmt'."
-  `((?f . ,(buffer-file-name))
-    (?o . ,(buffer-file-name (other-buffer)))
-    (?b . ,(and (buffer-file-name) (file-name-base (buffer-file-name))))
-    (?e . ,(and (buffer-file-name) (file-name-extension (buffer-file-name))))
-    (?y . ,(current-kill 0))))
-
-(defun shell-command+-expand-%-fmt (parse form context)
-  "Generalised version of `shell-command+-expand-%'.
-For PARSE, FORM and CONTEXT see `shell-command+-features'."
-  ;; Idea stolen from Alvaro Ramirez' "dwim-shell-command"
-  (setf (nth 3 parse)
-        (format-spec
-         (nth 3 parse)
-         (shell-command+-expand-%-fmt-spec)))
-  (list parse form context))
-
-(put #'shell-command+-expand-%-fmt
-     'shell-command+-docstring
-     "Inside COMMAND, replace the following %-sequences:
-
-- %f with the result of `buffer-file-name'
-- %o with the result of `buffer-file-name' of `other-buffer'
-- %b with the base of `buffer-file-name'
-- %e with the file extension of `buffer-file-name'
-- %y with the head of the kill ring
-
-See `format-spec' for details on how %-sequences are handled.")
 
 
 ;;;; Implicit cd
