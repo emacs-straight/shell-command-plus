@@ -74,7 +74,7 @@ Source code
 `shell-command+` is developed on [SourceHut].
 
 [SourceHut]:
-	https://sr.ht/~pkal/shell-command-plus
+	https://git.sr.ht/~pkal/shell-command-plus
 
 Bugs and Patches
 ----------------
