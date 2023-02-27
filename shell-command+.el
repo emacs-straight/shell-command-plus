@@ -1,6 +1,6 @@
 ;;; shell-command+.el --- An extended shell-command -*- lexical-binding: t -*-
 
-;; Copyright (C) 2020-2022  Free Software Foundation, Inc.
+;; Copyright (C) 2020-2023  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
@@ -93,14 +93,12 @@
   "Prompt to use when invoking `shell-command+'."
   :type 'string)
 
-(defcustom shell-command+-default-region nil
+(defcustom shell-command+-default-region 'buffer
   "Default thing to apply a command onto.
-The default value nil will apply a buffer to the entire buffer.
 A symbol such as `line', `page', `defun', ... as defined by
 `bounds-of-thing-at-point' will restrict the region to whatever
 is specified."
-  :type '(choice (const :tag "Entire buffer" nil)
-                 (symbol :tag "Thing")))
+  :type '(symbol :tag "Thing"))
 
 
 ;;; Modular feature support
@@ -486,9 +484,14 @@ respectively be assumed as a fallback.
 
 The current configuration adds the following functionality, that
 can be combined but will be processed in the following order:"
-  (interactive (let ((bounds (and shell-command+-default-region
-                                  (bounds-of-thing-at-point
-                                   shell-command+-default-region))))
+  (interactive (let ((bounds (bounds-of-thing-at-point
+                              (or shell-command+-default-region
+                                  ;; We default to buffer for
+                                  ;; compatibility reasons, back when
+                                  ;; `shell-command+-default-region'
+                                  ;; interpreted nil as the default
+                                  ;; option to use the entire buffer.
+                                  'buffer))))
                  (list (read-shell-command
                         (if (bound-and-true-p shell-command-prompt-show-cwd)
                             (format shell-command+-prompt
