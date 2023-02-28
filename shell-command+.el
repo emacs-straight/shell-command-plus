@@ -4,7 +4,7 @@
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 ;; Maintainer: Philip Kaludercic <~pkal/public-inbox@lists.sr.ht>
-;; Version: 2.4.1
+;; Version: 2.4.2
 ;; Keywords: unix, processes, convenience
 ;; Package-Requires: ((emacs "24.3"))
 ;; URL: https://git.sr.ht/~pkal/shell-command-plus
@@ -188,7 +188,9 @@ For PARSE, FORM and CONTEXT see `shell-command+-features'."
     (setf (nth 3 parse)
           (replace-regexp-in-string
            (rx (* ?\\ ?\\) (or ?\\ (group "%")))
-           buffer-file-name (nth 3 parse))))
+           (or (file-remote-p buffer-file-name 'localname)
+               buffer-file-name)
+           (nth 3 parse))))
   (list parse form context))
 
 (put #'shell-command+-expand-%
@@ -460,7 +462,7 @@ entire command."
     (insert (documentation (symbol-function 'shell-command+) 'raw))
     (dolist (feature shell-command+-features)
       (if (fboundp 'make-separator-line)
-          (insert "\n" (make-separator-line) "\n")
+          (insert "\n\n" (make-separator-line) "\n")
         (newline 2))
       (insert
        (let ((doc (get feature 'shell-command+-docstring)))
