@@ -1,6 +1,6 @@
 ;;; shell-command+-tests.el --- Tests for shell-command+  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021, 2022  Free Software Foundation, Inc.
+;; Copyright (C) 2021, 2022, 2023  Free Software Foundation, Inc.
 
 ;; Author: Philip Kaludercic <philipk@posteo.net>
 
@@ -166,19 +166,12 @@
 (ert-deftest sc+-tokenize ()
   "Test that `shell-command+-tokenize' works as expected."
   (pcase-dolist (`(,args ,expand ,list)
-                 '(("a b c" nil ("a" "b" "c"))
+                 `(("a b c" nil ("a" "b" "c"))
                    ("a \"b c\" d" nil ("a" "b c" "d"))
                    ("a *.el d" nil ("a" "*.el" "d"))
-                   ("a *.el d" t ("a"
-                                  ".dir-locals.el"
-                                  "shell-command+-tests.el"
-                                  "shell-command+.el"
-                                  "d"))
+                   ("a *.el d" t ("a" ,@(file-expand-wildcards "*.el") "d"))
                    ("a b *.el" nil ("a" "b" "*.el"))
-                   ("a b *.el" t ("a" "b"
-                                  ".dir-locals.el"
-                                  "shell-command+-tests.el"
-                                  "shell-command+.el"))
+                   ("a b *.el" t ("a" "b" ,@(file-expand-wildcards "*.el")))
                    ("a \"*.el\" d" nil ("a" "*.el" "d"))
                    ("a \"*.el\" d" t ("a" "*.el" "d"))
                    ("a \"b\\ c\" d" nil ("a" "b c" "d"))

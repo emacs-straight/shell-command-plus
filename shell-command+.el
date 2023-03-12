@@ -242,11 +242,10 @@ prefix the command with \"../../../../\" or \"....\".")
   "Convert COMMAND into a `grep' call."
   (grep-compute-defaults)
   (pcase-let ((`(,cmd . ,args) (shell-command+-tokenize command t)))
-    (grep (mapconcat #'identity
-                     (cons (replace-regexp-in-string
-                            (concat "\\`" grep-program) cmd grep-command)
-                           args)
-                     " "))))
+    (grep (concat
+           (replace-regexp-in-string
+            (concat "\\`" grep-program) cmd grep-command)
+           (mapconcat #'shell-quote-argument args " ")))))
 
 (defun shell-command+-cmd-find (command)
   "Convert COMMAND into a `find-dired' call."
@@ -261,7 +260,7 @@ prefix the command with \"../../../../\" or \"....\".")
 (defun shell-command+-cmd-man (command)
   "Convert COMMAND into a `man' call."
   (pcase-let ((`(,_ . ,args) (shell-command+-tokenize command)))
-    (man (mapconcat #'identity args " "))))
+    (man (mapconcat #'shell-quote-argument args " "))))
 
 (declare-function Info-menu "info" (menu-item &optional fork))
 (defun shell-command+-cmd-info (command)
